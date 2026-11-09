@@ -3,7 +3,10 @@
 Each loader returns a list of dicts:
   venue, instrument, expiry ('YYYY-MM-DD', all four expire at 08:00 UTC),
   strike, cp ('C' or 'P'), T (years, 365-day), fwd (venue forward or None),
-  bid_iv, ask_iv, mark_iv (decimals, None when that side is empty).
+  bid_iv, ask_iv, mark_iv (decimals, None when that side is empty),
+  bid_px, ask_px (the premium as quoted, None when that side is empty),
+  px_ccy ('BTC' for inverse, coin-settled options; 'USD' for linear ones,
+  USDT and USDC counted as USD), spot (the venue's BTC index, or None).
 
 OKX, Bybit and Binance publish bid and ask implied vols. Deribit quotes inverse
 options in BTC, so its bid and ask vols are solved here with Black-76 (see
@@ -92,25 +95,33 @@ def deribit(now):
     DERIBIT_CHECK.update(conversion=conv, median_abs_err_volpts=err, n_liquid=len(liquid))
 
     for r in out:
-        r["bid_iv"] = solve(r, r.pop("bid_btc"), conv)
-        r["ask_iv"] = solve(r, r.pop("ask_btc"), conv)
+        r["bid_px"], r["ask_px"] = r.pop("bid_btc"), r.pop("ask_btc")
+        r["bid_iv"] = solve(r, r["bid_px"], conv)
+        r["ask_iv"] = solve(r, r["ask_px"], conv)
+        r["px_ccy"], r["spot"] = "BTC", r.pop("index")
         r.pop("mark_btc")
-        r.pop("index")
     return out
 
 
 def okx(now):
     """Two families come back: BTC-USD (coin-margined) and BTC-USD_UM (USD-margined)."""
     rows = _get("https://www.okx.com/api/v5/public/opt-summary?uly=BTC-USD")["data"]
+    px = {t["instId"]: t for t in
+          _get("https://www.okx.com/api/v5/market/tickers?instType=OPTION&uly=BTC-USD")["data"]}
+    spot = _num(_get("https://www.okx.com/api/v5/market/index-tickers?instId=BTC-USD")["data"][0]["idxPx"])
     out = []
     for r in rows:
         fam, e, k, cp = r["instId"].rsplit("-", 3)
         expiry = _exp_ymd(e)
-        out.append(dict(venue="okx_usd" if fam.endswith("_UM") else "okx",
+        um = fam.endswith("_UM")  # USD-margined: premium in USD; otherwise premium in BTC
+        t = px.get(r["instId"], {})
+        out.append(dict(venue="okx_usd" if um else "okx",
                         instrument=r["instId"], expiry=expiry, strike=float(k), cp=cp,
                         T=_years(expiry, now), fwd=_num(r.get("fwdPx")),
                         bid_iv=_num(r.get("bidVol")), ask_iv=_num(r.get("askVol")),
-                        mark_iv=_num(r.get("markVol"))))
+                        mark_iv=_num(r.get("markVol")),
+                        bid_px=_num(t.get("bidPx")), ask_px=_num(t.get("askPx")),
+                        px_ccy="USD" if um else "BTC", spot=spot))
     return out
 
 
@@ -126,12 +137,20 @@ def bybit(now):
                         strike=float(parts[2]), cp=parts[3], T=_years(expiry, now),
                         fwd=_num(r.get("underlyingPrice")),
                         bid_iv=_num(r.get("bid1Iv")), ask_iv=_num(r.get("ask1Iv")),
-                        mark_iv=_num(r.get("markIv"))))
+                        mark_iv=_num(r.get("markIv")),
+                        bid_px=_num(r.get("bid1Price")), ask_px=_num(r.get("ask1Price")),
+                        px_ccy="USD", spot=_num(r.get("indexPrice"))))
     return out
 
 
 def binance(now):
+    """Linear options settled in USDT. Prices come from the ticker endpoint."""
     rows = [r for r in _get("https://eapi.binance.com/eapi/v1/mark") if r["symbol"].startswith("BTC-")]
+    px = {t["symbol"]: t for t in _get("https://eapi.binance.com/eapi/v1/ticker")}
+    try:
+        spot = _num(_get("https://eapi.binance.com/eapi/v1/index?underlying=BTCUSDT").get("indexPrice"))
+    except Exception:
+        spot = None
     out = []
     for r in rows:
         _, e, k, cp = r["symbol"].split("-")
@@ -139,7 +158,10 @@ def binance(now):
         out.append(dict(venue="binance", instrument=r["symbol"], expiry=expiry, strike=float(k),
                         cp=cp, T=_years(expiry, now), fwd=None,
                         bid_iv=_num(r.get("bidIV")), ask_iv=_num(r.get("askIV")),
-                        mark_iv=_num(r.get("markIV"))))
+                        mark_iv=_num(r.get("markIV")),
+                        bid_px=_num(px.get(r["symbol"], {}).get("bidPrice")),
+                        ask_px=_num(px.get(r["symbol"], {}).get("askPrice")),
+                        px_ccy="USD", spot=spot))
     return out
 
 
