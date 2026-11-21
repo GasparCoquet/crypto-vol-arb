@@ -146,6 +146,31 @@ Out-of-the-money options (|ln K/F| ≤ 0.25), on USD prices, after fees:
   locked on the other and topped up if BTC rallies, on two exchanges. The gap is
   about what that collateral costs over the life of the option.
 
+### The carry, as a rate
+
+Every out-of-the-money option quoted on both a USD-margined and a BTC-margined
+book, crossed or not, 30 days out or more (476,555 pairs): (USD-margined mid -
+BTC-margined mid) / BTC-margined mid / time to expiry. Shorter expiries are left
+out: their options cost a few ticks, and tick noise divided by a few days swamps
+the rate.
+
+| Expiry | Days to expiry | Median per year | 25th to 75th percentile |
+|---|---|---|---|
+| 2026-12-25 | 42 | 7.1 % | -4.8 % to 20.2 % |
+| 2027-01-29 | 76 | 7.9 % | 2.3 % to 11.2 % |
+| 2027-03-26 | 133 | 6.0 % | 3.4 % to 7.6 % |
+| 2027-06-25 | 224 | 5.7 % | 4.5 % to 7.3 % |
+| 2027-09-24 | 315 | 5.7 % | 4.6 % to 6.9 % |
+
+- USD-margined books price the same option about 6 % a year above BTC-margined
+  ones (median 6.2 %). From four months out the rate holds near 6 % and its
+  spread narrows. A rate that stays put across expiries is a financing cost; a
+  vol or pricing mismatch has no reason to be proportional to time.
+- Every venue pair gives 5.8 % to 6.6 %, OKX against itself included (6.4 %).
+- Calls carry more of it than puts (8.5 % against 2.8 % a year), so part of it
+  is the USD-margined books pricing off a higher forward. That is carry too: the
+  forward is spot plus the cost of funding.
+
 ## Assumptions and limits
 
 - Fees: one taker fee per leg for every venue, 0.03 % of the underlying capped
@@ -171,7 +196,7 @@ snapshots (above).
 
 1. Read sizes and depth, and each venue's real fee schedule: how much could
    actually be traded.
-2. Price the linear-versus-inverse gap as a carry trade: each venue's margin,
-   the USDT lending and BTC funding rates, against the gap per expiry.
+2. Set the implied 6 % a year against what USDT lending and perpetual funding
+   paid over the same week, and against each venue's margin requirements.
 3. Delta hedge with perpetuals and pay funding; simulate the vol-arb P&L with
    fees, slippage and latency.

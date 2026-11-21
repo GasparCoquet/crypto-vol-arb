@@ -3,7 +3,9 @@
 Reads every data/snapshots/*.csv.gz written by `scan.py --save` (collect.py runs it
 every 5 minutes) and measures how often one venue's bid sits above another venue's
 ask for the same option, by how much after fees, in which direction, at which
-expiries and for how long. Writes results/summary.md and results/gap_vs_expiry.png.
+expiries and for how long; then, for every option quoted on both a USD-margined
+and a BTC-margined book, how much richer the USD-margined price is per year of
+time to expiry (the carry). Writes results/summary.md and results/gap_vs_expiry.png.
 
 Usage:  python analyse.py
 """
@@ -26,13 +28,17 @@ BAND = 0.25  # out of the money: |ln K/F| <= 0.25
 PAUSE = np.timedelta64(8, "m")  # snapshots are 5 minutes apart: a longer pause ends an episode
 KEY = ["expiry", "strike", "cp"]
 MAIN = "USD bid > BTC ask"
+MIN_DAYS = 30  # carry rate: shorter options cost a few ticks, and tick noise divided by a few days swamps it
 
 
-def crosses(path):
+def otm(d):
+    """Out of the money and within BAND of the forward: calls at or above it, puts at or below it."""
+    lm = np.log(d.strike / d.Fc)
+    return (((d.cp == "C") & (lm >= 0)) | ((d.cp == "P") & (lm <= 0))) & (lm.abs() <= BAND)
+
+
+def crosses(d):
     """Every case of one venue bidding above another venue's ask for the same option, in USD."""
-    d = pd.read_csv(path)
-    if "spot" not in d:  # the first snapshots (v1) kept no USD prices
-        return None
     S = d["spot"].median()
     bids = d[KEY + ["venue", "bid_usd", "mid_ivc", "Fc", "T"]].dropna(subset=["bid_usd"])
     asks = d[KEY + ["venue", "ask_usd", "mid_ivc"]].dropna(subset=["ask_usd"])
@@ -41,11 +47,24 @@ def crosses(path):
     m = m[m.mid_ivc_bid.notna() | m.mid_ivc_ask.notna()].copy()  # no vol on either side: a broken quote
     fee = np.minimum(FEE_RATE * S, FEE_CAP * (m.bid_usd + m.ask_usd) / 2)  # one taker fee per leg
     m["net"] = m.bid_usd - m.ask_usd - 2 * fee
-    lm = np.log(m.strike / m.Fc)
-    m["otm"] = (((m.cp == "C") & (lm >= 0)) | ((m.cp == "P") & (lm <= 0))) & (lm.abs() <= BAND)
-    m["ts"] = pd.to_datetime(Path(path).name[:16], format="%Y%m%dT%H%M%SZ")
+    m["otm"] = otm(m)
+    m["ts"] = d["ts"].iloc[0]
     m["spot"] = S
     return m
+
+
+def carry(d):
+    """The same out-of-the-money option on a USD-margined and on a BTC-margined book, crossed or not:
+    how much richer the USD-margined mid is, per year of time to expiry."""
+    q = d.dropna(subset=["bid_usd", "ask_usd"])
+    q = q[(q.bid_usd > 0) & (q.ask_usd >= q.bid_usd)].copy()
+    q["mid"] = (q.bid_usd + q.ask_usd) / 2
+    q = q[otm(q) & (q["T"] * 365 >= MIN_DAYS)]
+    usd, btc = q[~q.venue.isin(INVERSE)], q[q.venue.isin(INVERSE)]
+    m = usd.merge(btc, on=KEY, suffixes=("_usd", "_btc"))
+    m["rate"] = (m.mid_usd - m.mid_btc) / m.mid_btc / m.T_usd
+    m["days"] = m.T_usd * 365
+    return m[KEY + ["venue_usd", "venue_btc", "days", "rate"]]
 
 
 def direction(x):
@@ -131,15 +150,23 @@ def md_table(header, rows):
     return "\n".join(lines + ["| " + " | ".join(str(c) for c in r) + " |" for r in rows])
 
 
-def load_crosses():
-    """All snapshots: (how many, first time, last time, out-of-the-money crosses still positive after fees)."""
-    files = sorted((ROOT / "data" / "snapshots").glob("*.csv.gz"))
-    parts = [m for m in map(crosses, files) if m is not None]
-    x = pd.concat(parts)
+def load():
+    """One pass over the snapshots: how many, first and last time, the out-of-the-money crosses still
+    positive after fees, and the USD-margined against BTC-margined pairs for the carry rate."""
+    times, xs, cs = [], [], []
+    for f in sorted((ROOT / "data" / "snapshots").glob("*.csv.gz")):
+        d = pd.read_csv(f)
+        if "spot" not in d:  # the first snapshots (v1) kept no USD prices
+            continue
+        d["ts"] = pd.to_datetime(f.name[:16], format="%Y%m%dT%H%M%SZ")
+        times.append(d["ts"].iloc[0])
+        xs.append(crosses(d))
+        cs.append(carry(d))
+    x = pd.concat(xs)
     n = x[x.otm & (x.net > 0)].copy()
     n["direction"] = direction(n)
     n["days"] = n["T"] * 365
-    return len(parts), x.ts.min(), x.ts.max(), n
+    return len(times), min(times), max(times), n, pd.concat(cs)
 
 
 def by_expiry(n):
@@ -149,9 +176,13 @@ def by_expiry(n):
 
 
 def main():
-    snaps, first, last, n = load_crosses()
+    snaps, first, last, n, c = load()
     by_dir = n.groupby("direction").net.agg(["size", "median"]).sort_values("size", ascending=False)
     by_exp = by_expiry(n)
+    c_exp = c.groupby("expiry").agg(days=("days", "median"), pairs=("rate", "size"), median=("rate", "median"),
+                                    q25=("rate", lambda s: s.quantile(0.25)), q75=("rate", lambda s: s.quantile(0.75)))
+    c_pair = c.groupby(["venue_usd", "venue_btc"]).rate.agg(["size", "median"])
+    c_cp = c.groupby("cp").rate.median()
     by_pair = n.groupby(["venue_bid", "venue_ask"]).net.agg(["size", "median"]).sort_values("size", ascending=False)
     ep = episodes(n)
     ok, failed, secs = collector(ROOT / "data" / "collect.log")
@@ -184,6 +215,15 @@ def main():
                  [[label, f"{((ep >= lo) & (ep <= hi)).sum():,}"] for label, lo, hi in
                   [("1", 1, 1), ("2", 2, 2), ("3", 3, 3), ("4 to 6", 4, 6), ("7 to 12", 7, 12),
                    ("13 to 48", 13, 48), ("49 or more", 49, 10**9)]]),
+        f"## USD-margined over BTC-margined, per year (expiries {MIN_DAYS}+ days out)",
+        f"Every out-of-the-money option quoted on both kinds of book, crossed or not: (USD-margined mid - "
+        f"BTC-margined mid) / BTC-margined mid / time to expiry. Median {c.rate.median():.1%} a year over "
+        f"{len(c):,} pairs; calls {c_cp['C']:.1%}, puts {c_cp['P']:.1%}.",
+        md_table(["Expiry", "Days to expiry", "Option pairs", "Median per year", "25th to 75th percentile"],
+                 [[e, f"{r.days:.0f}", f"{int(r.pairs):,}", f"{r['median']:.1%}", f"{r.q25:.1%} to {r.q75:.1%}"]
+                  for e, r in c_exp.sort_index().iterrows()]),
+        md_table(["USD-margined", "BTC-margined", "Option pairs", "Median per year"],
+                 [[a, b, f"{int(r['size']):,}", f"{r['median']:.1%}"] for (a, b), r in c_pair.iterrows()]),
         "## Collector",
         f"collect.py runs: {ok:,} saved, {failed:,} failed; a saved run takes a median {secs:.0f} s, "
         "the venues being read one after the other.",

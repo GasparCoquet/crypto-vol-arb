@@ -67,6 +67,27 @@
 | 13 to 48 | 468 |
 | 49 or more | 113 |
 
+## USD-margined over BTC-margined, per year (expiries 30+ days out)
+
+Every out-of-the-money option quoted on both kinds of book, crossed or not: (USD-margined mid - BTC-margined mid) / BTC-margined mid / time to expiry. Median 6.2% a year over 476,555 pairs; calls 8.5%, puts 2.8%.
+
+| Expiry | Days to expiry | Option pairs | Median per year | 25th to 75th percentile |
+|---|---|---|---|---|
+| 2026-12-25 | 42 | 137,364 | 7.1% | -4.8% to 20.2% |
+| 2027-01-29 | 76 | 126,308 | 7.9% | 2.3% to 11.2% |
+| 2027-03-26 | 133 | 114,654 | 6.0% | 3.4% to 7.6% |
+| 2027-06-25 | 224 | 53,770 | 5.7% | 4.5% to 7.3% |
+| 2027-09-24 | 315 | 44,459 | 5.7% | 4.6% to 6.9% |
+
+| USD-margined | BTC-margined | Option pairs | Median per year |
+|---|---|---|---|
+| binance | deribit | 137,577 | 6.3% |
+| binance | okx | 74,585 | 6.6% |
+| bybit_usdt | deribit | 96,520 | 6.1% |
+| bybit_usdt | okx | 64,380 | 6.2% |
+| okx_usd | deribit | 59,510 | 5.8% |
+| okx_usd | okx | 43,983 | 6.4% |
+
 ## Collector
 
 collect.py runs: 1,362 saved, 420 failed; a saved run takes a median 18 s, the venues being read one after the other.
