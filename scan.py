@@ -46,6 +46,8 @@ def load(now):
             print(f"  {name:8s} {len(got):5d} options  ({time.time() - t0:.1f}s)")
         except Exception as e:  # one venue down must not kill the snapshot
             print(f"  {name:8s} FAILED: {e!r}")
+    if not rows:  # every venue failed: most likely no network, so say it instead of a KeyError below
+        raise RuntimeError("no venue answered (network down?)")
     df = pd.DataFrame(rows)
     for c in ("bid_iv", "ask_iv", "mark_iv"):
         df.loc[~df[c].between(*SANE_IV), c] = None
