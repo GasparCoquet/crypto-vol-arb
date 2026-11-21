@@ -27,7 +27,9 @@ US and European exchanges).
 ```
 pip install -r requirements.txt
 python -m pytest -q
-python scan.py --save
+python scan.py --save      # one snapshot to data/snapshots
+python collect.py          # what the scheduler runs every 5 minutes: scan.py --save, one line in data/collect.log
+python analyse.py          # the week: results/summary.md and results/gap_vs_expiry.png
 ```
 
 ## Method v2: prices on one forward (scan sections 4-7)
@@ -97,30 +99,79 @@ all four.
 snapshot. Any vol-arb edge has to come from moments, not from the average
 snapshot, which is what the time series (next step) measures.**
 
+## One week of snapshots, 9 to 18 Nov 2026
+
+`collect.py` ran `scan.py --save` every 5 minutes for 7 days (Windows Task
+Scheduler, 11 to 18 Nov), after manual runs from 9 Nov, from Paris with all four
+venues. `analyse.py` reads the 1,363 snapshots with USD prices and writes
+[results/summary.md](results/summary.md) (every table, including each expiry
+and venue pair) and the chart below.
+
+Coverage: 1,362 runs saved and 420 failed, out of 2,016 scheduled (68 %). The
+PC was off for 18 hours on 13 and 14 Nov, and in the daytime from 15 to 18 Nov
+every venue failed at once (no network), so those days hold nights and evenings
+only.
+
+Out-of-the-money options (|ln K/F| ≤ 0.25), on USD prices, after fees:
+
+| Measure | Value |
+|---|---|
+| Crossed quotes after fees | 43,794 |
+| Snapshots with at least one | 1,360 of 1,363 |
+| Median gap | $20.1 per BTC (2.9 bps of spot) |
+| 90th percentile, largest | $63.5, $664.5 |
+| Episodes seen in one snapshot only | 54 % of 11,842 |
+| Longest episode | 277 snapshots (about 23 h) |
+
+| Direction | Crosses | Share | Median gap |
+|---|---|---|---|
+| USD-margined bid above BTC-margined ask | 43,364 | 99.0 % | $20.3 |
+| USD-margined on both sides | 326 | 0.7 % | $1.6 |
+| BTC-margined bid above any ask | 104 | 0.2 % | $2.3 |
+
+![Median gap per expiry](results/gap_vs_expiry.png)
+
+**Reading: the crosses are carry, not arbitrage.**
+
+- They go one way. A USD-margined book (Binance, Bybit USDT, OKX USD-margined)
+  bids above a BTC-margined one (Deribit, OKX coin-margined) in 99 % of the
+  crosses. Between two USD-margined books the median gap is $1.6.
+- It happens inside one exchange: OKX's USD-margined book bid above its own
+  coin-margined book 2,253 times (median $14.4).
+- The gap grows with time to expiry, from about $2 for options a few days out to
+  $62 for September 2027, about $6 per BTC for each extra month. A pricing error
+  would not depend on the expiry; a financing cost does.
+- Collecting it means buying on the BTC-margined venue, selling on the
+  USD-margined one and holding both to expiry: BTC paid on one side, USDT margin
+  locked on the other and topped up if BTC rallies, on two exchanges. The gap is
+  about what that collateral costs over the life of the option.
+
 ## Assumptions and limits
 
 - Fees: one taker fee per leg for every venue, 0.03 % of the underlying capped
   at 12.5 % of the premium. Each venue's real schedule replaces this in v2.
 - Top of book only; Deribit and Binance sizes are not read yet.
-- Venues are fetched one after the other, about a second apart.
+- Venues are read one after the other: a full run takes a median 18 s, so the
+  two quotes of a cross can be that far apart.
+- Snapshots are 5 minutes apart: a cross that opens and closes in between is
+  missed, and an episode's length is known to 5 minutes.
 - Inverse (Deribit, OKX coin-margined) and linear (USDT) payoffs are compared
   on vols only; the BTC-settled payoff changes the hedge, not the vol.
 - v2: USDT and USDC counted as USD; zero BTC rate and a USD discount factor of
   S / F, the same for every venue. Bybit's and Binance's price fields
   (`bid1Price`, `ask1Price`; ticker `bidPrice`, `askPrice`) were not reachable
-  from the machine the second snapshot ran on.
+  from the machine the second snapshot ran on; the week of snapshots, run from
+  Paris, reads them.
 
 ## Next
 
-Done in v2: one forward per expiry from prices (was step 1) and SVI per venue
-with butterfly and calendar checks (was step 4).
+Done: one forward per expiry from prices and SVI per venue with butterfly and
+calendar checks (v2); all four venues from Europe and a week of 5-minute
+snapshots (above).
 
-1. Rerun v2 from Europe with all four venues.
-2. Snapshot every 5 minutes for a week: how often, how large and how long
-   (half-life) a dislocation on USD prices lasts.
-3. Read sizes and depth, and each venue's real fee schedule: how much could
+1. Read sizes and depth, and each venue's real fee schedule: how much could
    actually be traded.
-4. Price the in-the-money linear-versus-inverse gaps as a carry trade, with
-   funding and margin.
-5. Delta hedge with perpetuals and pay funding; simulate the vol-arb P&L with
+2. Price the linear-versus-inverse gap as a carry trade: each venue's margin,
+   the USDT lending and BTC funding rates, against the gap per expiry.
+3. Delta hedge with perpetuals and pay funding; simulate the vol-arb P&L with
    fees, slippage and latency.
