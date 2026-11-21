@@ -71,13 +71,13 @@
 
 Every out-of-the-money option quoted on both kinds of book, crossed or not: (USD-margined mid - BTC-margined mid) / BTC-margined mid / time to expiry. Median 6.2% a year over 476,555 pairs; calls 8.5%, puts 2.8%.
 
-| Expiry | Days to expiry | Option pairs | Median per year | 25th to 75th percentile |
-|---|---|---|---|---|
-| 2026-12-25 | 42 | 137,364 | 7.1% | -4.8% to 20.2% |
-| 2027-01-29 | 76 | 126,308 | 7.9% | 2.3% to 11.2% |
-| 2027-03-26 | 133 | 114,654 | 6.0% | 3.4% to 7.6% |
-| 2027-06-25 | 224 | 53,770 | 5.7% | 4.5% to 7.3% |
-| 2027-09-24 | 315 | 44,459 | 5.7% | 4.6% to 6.9% |
+| Expiry | Days to expiry | Option pairs | Median per year | 25th to 75th percentile | Futures basis per year |
+|---|---|---|---|---|---|
+| 2026-12-25 | 42 | 137,364 | 7.1% | -4.8% to 20.2% | 5.7% |
+| 2027-01-29 | 76 | 126,308 | 7.9% | 2.3% to 11.2% | 5.6% |
+| 2027-03-26 | 133 | 114,654 | 6.0% | 3.4% to 7.6% | 5.6% |
+| 2027-06-25 | 224 | 53,770 | 5.7% | 4.5% to 7.3% | 5.7% |
+| 2027-09-24 | 315 | 44,459 | 5.7% | 4.6% to 6.9% | 5.7% |
 
 | USD-margined | BTC-margined | Option pairs | Median per year |
 |---|---|---|---|

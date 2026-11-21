@@ -30,6 +30,7 @@ python -m pytest -q
 python scan.py --save      # one snapshot to data/snapshots
 python collect.py          # what the scheduler runs every 5 minutes: scan.py --save, one line in data/collect.log
 python analyse.py          # the week: results/summary.md and results/gap_vs_expiry.png
+python funding.py          # perpetual funding over the same window: results/funding.md
 ```
 
 ## Method v2: prices on one forward (scan sections 4-7)
@@ -154,13 +155,16 @@ BTC-margined mid) / BTC-margined mid / time to expiry. Shorter expiries are left
 out: their options cost a few ticks, and tick noise divided by a few days swamps
 the rate.
 
-| Expiry | Days to expiry | Median per year | 25th to 75th percentile |
-|---|---|---|---|
-| 2026-12-25 | 42 | 7.1 % | -4.8 % to 20.2 % |
-| 2027-01-29 | 76 | 7.9 % | 2.3 % to 11.2 % |
-| 2027-03-26 | 133 | 6.0 % | 3.4 % to 7.6 % |
-| 2027-06-25 | 224 | 5.7 % | 4.5 % to 7.3 % |
-| 2027-09-24 | 315 | 5.7 % | 4.6 % to 6.9 % |
+| Expiry | Days to expiry | Options carry, median per year | 25th to 75th percentile | Futures basis per year |
+|---|---|---|---|---|
+| 2026-12-25 | 42 | 7.1 % | -4.8 % to 20.2 % | 5.7 % |
+| 2027-01-29 | 76 | 7.9 % | 2.3 % to 11.2 % | 5.6 % |
+| 2027-03-26 | 133 | 6.0 % | 3.4 % to 7.6 % | 5.6 % |
+| 2027-06-25 | 224 | 5.7 % | 4.5 % to 7.3 % | 5.7 % |
+| 2027-09-24 | 315 | 5.7 % | 4.6 % to 6.9 % | 5.7 % |
+
+The futures basis is ln(F / spot) / T, from each expiry's forward in the same
+snapshots.
 
 - USD-margined books price the same option about 6 % a year above BTC-margined
   ones (median 6.2 %). From four months out the rate holds near 6 % and its
@@ -170,6 +174,15 @@ the rate.
 - Calls carry more of it than puts (8.5 % against 2.8 % a year), so part of it
   is the USD-margined books pricing off a higher forward. That is carry too: the
   forward is spot plus the cost of funding.
+- **That rate is the BTC futures basis.** The forward sits 5.6 to 5.7 % a year
+  above spot at every expiry, and from six months out the options carry matches
+  it (5.7 %). Perpetual funding over the same 8.5 days (`funding.py`,
+  [results/funding.md](results/funding.md)) ran at 3.7 % to 5.1 % a year on the
+  USDT perpetuals and 2.3 % on Deribit's inverse one.
+- So a USD-margined option costs about the BTC-margined premium converted at the
+  forward instead of spot. Collecting the difference ties up capital that a
+  cash-and-carry trade (buy spot, sell the future) pays the same 5.7 % a year:
+  it is the price of money in crypto, not an arbitrage.
 
 ## Assumptions and limits
 
@@ -196,7 +209,7 @@ snapshots (above).
 
 1. Read sizes and depth, and each venue's real fee schedule: how much could
    actually be traded.
-2. Set the implied 6 % a year against what USDT lending and perpetual funding
-   paid over the same week, and against each venue's margin requirements.
+2. Margin: how much capital each venue ties up per contract, which sets the
+   return on capital of collecting the gap against the 5.7 % basis.
 3. Delta hedge with perpetuals and pay funding; simulate the vol-arb P&L with
    fees, slippage and latency.

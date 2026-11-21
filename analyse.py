@@ -67,6 +67,13 @@ def carry(d):
     return m[KEY + ["venue_usd", "venue_btc", "days", "rate"]]
 
 
+def basis(d):
+    """The futures basis each expiry's forward implies, per year: ln(F / spot) / T."""
+    g = d.dropna(subset=["Fc"]).groupby("expiry").agg(F=("Fc", "median"), T=("T", "median"))
+    g = g[g["T"] * 365 >= MIN_DAYS]
+    return (np.log(g.F / d["spot"].median()) / g["T"]).rename("basis").reset_index()
+
+
 def direction(x):
     """Which kind of book bids above which: USD-margined (linear) or BTC-margined (inverse)."""
     usd_bid, usd_ask = ~x.venue_bid.isin(INVERSE), ~x.venue_ask.isin(INVERSE)
@@ -153,7 +160,7 @@ def md_table(header, rows):
 def load():
     """One pass over the snapshots: how many, first and last time, the out-of-the-money crosses still
     positive after fees, and the USD-margined against BTC-margined pairs for the carry rate."""
-    times, xs, cs = [], [], []
+    times, xs, cs, bs = [], [], [], []
     for f in sorted((ROOT / "data" / "snapshots").glob("*.csv.gz")):
         d = pd.read_csv(f)
         if "spot" not in d:  # the first snapshots (v1) kept no USD prices
@@ -162,11 +169,12 @@ def load():
         times.append(d["ts"].iloc[0])
         xs.append(crosses(d))
         cs.append(carry(d))
+        bs.append(basis(d))
     x = pd.concat(xs)
     n = x[x.otm & (x.net > 0)].copy()
     n["direction"] = direction(n)
     n["days"] = n["T"] * 365
-    return len(times), min(times), max(times), n, pd.concat(cs)
+    return len(times), min(times), max(times), n, pd.concat(cs), pd.concat(bs)
 
 
 def by_expiry(n):
@@ -176,11 +184,12 @@ def by_expiry(n):
 
 
 def main():
-    snaps, first, last, n, c = load()
+    snaps, first, last, n, c, b = load()
     by_dir = n.groupby("direction").net.agg(["size", "median"]).sort_values("size", ascending=False)
     by_exp = by_expiry(n)
     c_exp = c.groupby("expiry").agg(days=("days", "median"), pairs=("rate", "size"), median=("rate", "median"),
                                     q25=("rate", lambda s: s.quantile(0.25)), q75=("rate", lambda s: s.quantile(0.75)))
+    c_exp["basis"] = b.groupby("expiry").basis.median()
     c_pair = c.groupby(["venue_usd", "venue_btc"]).rate.agg(["size", "median"])
     c_cp = c.groupby("cp").rate.median()
     by_pair = n.groupby(["venue_bid", "venue_ask"]).net.agg(["size", "median"]).sort_values("size", ascending=False)
@@ -219,9 +228,10 @@ def main():
         f"Every out-of-the-money option quoted on both kinds of book, crossed or not: (USD-margined mid - "
         f"BTC-margined mid) / BTC-margined mid / time to expiry. Median {c.rate.median():.1%} a year over "
         f"{len(c):,} pairs; calls {c_cp['C']:.1%}, puts {c_cp['P']:.1%}.",
-        md_table(["Expiry", "Days to expiry", "Option pairs", "Median per year", "25th to 75th percentile"],
-                 [[e, f"{r.days:.0f}", f"{int(r.pairs):,}", f"{r['median']:.1%}", f"{r.q25:.1%} to {r.q75:.1%}"]
-                  for e, r in c_exp.sort_index().iterrows()]),
+        md_table(["Expiry", "Days to expiry", "Option pairs", "Median per year", "25th to 75th percentile",
+                  "Futures basis per year"],
+                 [[e, f"{r.days:.0f}", f"{int(r.pairs):,}", f"{r['median']:.1%}", f"{r.q25:.1%} to {r.q75:.1%}",
+                   f"{r.basis:.1%}"] for e, r in c_exp.sort_index().iterrows()]),
         md_table(["USD-margined", "BTC-margined", "Option pairs", "Median per year"],
                  [[a, b, f"{int(r['size']):,}", f"{r['median']:.1%}"] for (a, b), r in c_pair.iterrows()]),
         "## Collector",
